@@ -1,0 +1,11 @@
+# Variables reales y secretos: nunca al repo
+.env
+*.env
+!.env.example
+secrets.yaml
+*.token
+.ha_token
+
+# Sistema
+.DS_Store
+__pycache__/

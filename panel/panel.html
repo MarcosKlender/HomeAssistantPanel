@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Casa">
+<title>Casa</title>
+<!--
+  Panel ligero para Home Assistant, compatible con Safari 10 (iPad 4).
+  Solo usa JavaScript ES5. Organiza luces, puertas y aspiradora segun los
+  pisos y areas de Home Assistant. El token NUNCA va en este archivo: se pega
+  en el dispositivo y se guarda solo en su localStorage.
+-->
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: #111418; color: #e8eaed;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none; user-select: none; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 24px 24px 8px; }
+  #clock { font-size: 56px; font-weight: 200; letter-spacing: 1px; }
+  #date { font-size: 18px; color: #9aa0a6; margin-top: 2px; }
+  #settings { width: 48px; height: 48px; border-radius: 24px; background: #1e232a; color: #9aa0a6;
+    border: 0; font-size: 22px; }
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px 0; }
+  #tabs { display: flex; background: #1e232a; border-radius: 14px; padding: 4px; }
+  #tabs div { white-space: nowrap; padding: 12px 22px; border-radius: 10px; font-size: 17px; font-weight: 600; color: #9aa0a6; }
+  #tabs div.active { background: #e8eaed; color: #111418; }
+  #alloff { padding: 12px 18px; border-radius: 12px; background: #1e232a; color: #e8eaed;
+    font-size: 16px; font-weight: 600; border: 0; }
+  #alloff small { color: #f5a524; font-weight: 600; margin-left: 6px; font-size: 14px; }
+  #status { margin: 14px 24px 0; padding: 10px 14px; border-radius: 10px; background: #5c2b29; color: #f6c7c3;
+    font-size: 15px; display: none; }
+  h2 { font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+    color: #9aa0a6; margin: 22px 24px 8px; display: flex; justify-content: space-between; }
+  h2 span { text-transform: none; letter-spacing: 0; color: #f5a524; font-weight: 500; }
+  .grid { display: flex; flex-wrap: wrap; padding: 0 16px; }
+  .tile { width: 33.333%; padding: 8px; }
+  .tile > div { background: #1e232a; border-radius: 18px; padding: 16px 18px; height: 112px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    -webkit-transition: background-color .2s; transition: background-color .2s; }
+  .tile svg { width: 30px; height: 30px; fill: #9aa0a6; }
+  .tile .name { font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .state { font-size: 14px; color: #9aa0a6; margin-top: 2px; }
+  .tile.on > div { background: #f5a524; color: #1b1300; }
+  .tile.on svg { fill: #1b1300; }
+  .tile.on .state { color: #4a3300; }
+  .tile.busy > div { background: #2e7d5b; color: #eafff4; }
+  .tile.busy svg { fill: #eafff4; }
+  .tile.busy .state { color: #c8f2dd; }
+  .tile.open > div { background: #3a2a5c; color: #efe7ff; }
+  .tile.open svg { fill: #efe7ff; }
+  .tile.open .state { color: #cdbdf5; }
+  .tile.off-line > div { opacity: .4; }
+  .tile.wide { width: 66.666%; }
+  #empty { color: #9aa0a6; padding: 40px 24px; font-size: 17px; display: none; }
+  #setup { display: none; padding: 40px 24px; max-width: 640px; margin: 0 auto; }
+  #setup p { color: #9aa0a6; font-size: 17px; line-height: 1.5; }
+  #setup textarea { width: 100%; height: 140px; border-radius: 12px; border: 1px solid #333a44;
+    background: #1e232a; color: #e8eaed; font-size: 15px; padding: 12px; -webkit-user-select: text; user-select: text; }
+  #setup button { margin-top: 14px; width: 100%; height: 54px; border: 0; border-radius: 12px;
+    background: #f5a524; color: #1b1300; font-size: 18px; font-weight: 600; }
+  @media (max-width: 700px) {
+    .tile { width: 50%; } .tile.wide { width: 100%; }
+    .bar { display: block; } #alloff { margin-top: 10px; }
+    #tabs div { padding: 10px 14px; font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<div id="app" style="display:none">
+  <header>
+    <div><div id="clock">--:--</div><div id="date"></div></div>
+    <button id="settings" aria-label="Ajustes">&#9881;</button>
+  </header>
+  <div class="bar">
+    <div id="tabs"></div>
+    <button id="alloff">Apagar todo</button>
+  </div>
+  <div id="status"></div>
+  <div id="content"></div>
+  <div id="empty">No hay luces, puertas ni aspiradoras para mostrar.</div>
+</div>
+
+<div id="setup">
+  <h1>Configurar panel</h1>
+  <p id="setup-msg">Pega el token de acceso de Home Assistant (de un usuario sin permisos de administrador).</p>
+  <textarea id="token-input" placeholder="Token de acceso"></textarea>
+  <button id="token-save">Guardar</button>
+</div>
+
+<script>
+(function () {
+  var TOKEN_KEY = "ha_panel_token";
+  var REGISTRY_REFRESH_MS = 300000;
+  var RECONNECT_MS = 5000;
+  var DEFAULT_FLOOR = /baja/i;
+  var BULB = "M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z";
+  var ROBOT = "M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A3,3 0 0,0 9,9A3,3 0 0,0 12,12A3,3 0 0,0 15,9A3,3 0 0,0 12,6M8,15V17H16V15H8Z";
+  var DOOR = "M8,3C6.89,3 6,3.89 6,5V21H18V5C18,3.89 17.11,3 16,3H8M8,5H16V19H8V5M13,11V13H15V11H13Z";
+  var DOOR_CLASSES = { door: 1, window: 1, opening: 1, garage_door: 1 };
+  var VACUUM_STATES = { cleaning: "Limpiando", docked: "En la base", returning: "Volviendo a la base",
+    idle: "En espera", paused: "En pausa", error: "Error" };
+  var DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  var MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+    "septiembre", "octubre", "noviembre", "diciembre"];
+
+  var ws = null, msgId = 0, pending = {}, authFailed = false;
+  var reconnectTimer = null, registryTimer = null, clockTimer = null;
+  var states = {};      // entity_id -> estado
+  var reg = null;       // pisos, areas y entidades de Home Assistant (null = sin registro)
+  var model = [];       // [{ id, name, rooms: [{ name, ids, vacuum }] }]
+  var modelIds = {};    // entidades que aparecen en el modelo
+  var currentFloor = null;
+  var tiles = {};       // entity_id -> elemento de la tarjeta visible
+  var roomEls = [];     // [{ ids, span }] de la planta visible
+
+  function byId(id) { return document.getElementById(id); }
+  function domainOf(id) { return id.split(".")[0]; }
+  function nameOf(s) { return (s && s.attributes && s.attributes.friendly_name) || (s && s.entity_id) || ""; }
+
+  function getToken() { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }
+  function setToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} }
+  function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+
+  // El token se puede pasar una sola vez en la URL: panel.html#token=XXXX (el hash no se envia al servidor)
+  var m = /[#&]token=([^&]+)/.exec(location.hash);
+  if (m) {
+    setToken(decodeURIComponent(m[1]));
+    if (history.replaceState) { history.replaceState(null, "", location.pathname); } else { location.hash = ""; }
+  }
+
+  function setStatus(msg) {
+    var el = byId("status");
+    el.textContent = msg;
+    el.style.display = msg ? "block" : "none";
+  }
+
+  // ---------- WebSocket de Home Assistant ----------
+
+  function send(msg, cb) {
+    if (!ws || ws.readyState !== 1) { if (cb) { cb({ message: "sin conexion" }); } return; }
+    msgId++;
+    msg.id = msgId;
+    if (cb) { pending[msgId] = cb; }
+    ws.send(JSON.stringify(msg));
+  }
+
+  function scheduleReconnect() {
+    if (!reconnectTimer && !authFailed) { reconnectTimer = setTimeout(connect, RECONNECT_MS); }
+  }
+
+  function connect() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (ws) { return; }
+    msgId = 0;
+    pending = {};
+    try {
+      ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/websocket");
+    } catch (e) { scheduleReconnect(); return; }
+    ws.onmessage = function (ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === "auth_required") {
+        ws.send(JSON.stringify({ type: "auth", access_token: getToken() }));
+      } else if (msg.type === "auth_invalid") {
+        authFailed = true;
+        ws.close();
+        showSetup("El token no es válido o fue revocado. Pega uno nuevo.");
+      } else if (msg.type === "auth_ok") {
+        setStatus("");
+        onReady();
+      } else if (msg.type === "result") {
+        var cb = pending[msg.id];
+        if (cb) { delete pending[msg.id]; cb(msg.success ? null : (msg.error || {}), msg.result); }
+      } else if (msg.type === "event" && msg.event && msg.event.event_type === "state_changed") {
+        onStateChanged(msg.event.data);
+      }
+    };
+    ws.onclose = function () {
+      ws = null;
+      if (!authFailed) { setStatus("Sin conexión con Home Assistant. Reintentando…"); scheduleReconnect(); }
+    };
+  }
+
+  function onReady() {
+    loadRegistries(function () {
+      send({ type: "get_states" }, function (err, list) {
+        if (err || !list) { return; }
+        states = {};
+        for (var i = 0; i < list.length; i++) { states[list[i].entity_id] = list[i]; }
+        buildModel();
+        render();
+      });
+      send({ type: "subscribe_events", event_type: "state_changed" });
+    });
+    if (!registryTimer) {
+      registryTimer = setInterval(function () {
+        loadRegistries(function () { buildModel(); render(); });
+      }, REGISTRY_REFRESH_MS);
+    }
+  }
+
+  // Lee pisos, areas, dispositivos y entidades. Si algo falla, el panel muestra todo en una sola pestaña.
+  function loadRegistries(done) {
+    var r = { floors: [], areaName: {}, areaFloor: {}, areaOrder: {}, deviceArea: {}, ent: {} };
+    var left = 4, failed = false;
+    function finish(err) {
+      if (err) { failed = true; }
+      left--;
+      if (left === 0) { reg = failed ? null : r; done(); }
+    }
+    send({ type: "config/floor_registry/list" }, function (err, res) {
+      if (!err && res) { r.floors = res; }
+      finish(err);
+    });
+    send({ type: "config/area_registry/list" }, function (err, res) {
+      if (!err && res) {
+        for (var i = 0; i < res.length; i++) {
+          r.areaName[res[i].area_id] = res[i].name;
+          r.areaFloor[res[i].area_id] = res[i].floor_id || null;
+          r.areaOrder[res[i].area_id] = i;
+        }
+      }
+      finish(err);
+    });
+    send({ type: "config/device_registry/list" }, function (err, res) {
+      if (!err && res) { for (var i = 0; i < res.length; i++) { r.deviceArea[res[i].id] = res[i].area_id || null; } }
+      finish(err);
+    });
+    send({ type: "config/entity_registry/list_for_display" }, function (err, res) {
+      var list = res && res.entities;
+      if (!err && list) { for (var i = 0; i < list.length; i++) { r.ent[list[i].ei] = list[i]; } }
+      finish(err);
+    });
+  }
+
+  // ---------- Modelo: plantas > habitaciones > entidades ----------
+
+  function relevant(s) {
+    var d = domainOf(s.entity_id);
+    if (d === "light" || d === "vacuum") { return true; }
+    return d === "binary_sensor" && !!(s.attributes && DOOR_CLASSES[s.attributes.device_class]);
+  }
+
+  function isHidden(id) { var e = reg && reg.ent[id]; return !!(e && e.hb); }
+
+  function areaOf(id) {
+    var e = reg && reg.ent[id];
+    if (!e) { return null; }
+    return e.ai || (e.di && reg.deviceArea[e.di]) || null;
+  }
+
+  function byName(a, b) { return nameOf(states[a]).localeCompare(nameOf(states[b])); }
+
+  function buildModel() {
+    var floors = [], floorMap = {}, i, id;
+    function addFloor(fid, name) {
+      var f = { id: fid, name: name, rooms: [], roomMap: {}, vac: [] };
+      floors.push(f);
+      floorMap[fid] = f;
+      return f;
+    }
+    if (reg && reg.floors.length) {
+      var fl = reg.floors.slice();
+      fl.sort(function (a, b) {
+        var la = a.level == null ? 999 : a.level, lb = b.level == null ? 999 : b.level;
+        return la !== lb ? la - lb : a.name.localeCompare(b.name);
+      });
+      for (i = 0; i < fl.length; i++) { addFloor(fl[i].floor_id, fl[i].name); }
+    }
+    var other = addFloor("_otros", floors.length ? "Otros" : "Casa");
+    var defaultFloor = null;
+    for (i = 0; i < floors.length; i++) { if (DEFAULT_FLOOR.test(floors[i].name)) { defaultFloor = floors[i]; break; } }
+    if (!defaultFloor) { defaultFloor = floors[0]; }
+
+    var ids = [];
+    for (id in states) { if (relevant(states[id]) && !isHidden(id)) { ids.push(id); } }
+    ids.sort(byName);
+    modelIds = {};
+    for (i = 0; i < ids.length; i++) {
+      id = ids[i];
+      modelIds[id] = 1;
+      var area = areaOf(id);
+      var f = (area && floorMap[reg.areaFloor[area]]) || null;
+      if (domainOf(id) === "vacuum") { (f || defaultFloor).vac.push(id); continue; }
+      f = f || other;
+      var key = area || "_none";
+      var room = f.roomMap[key];
+      if (!room) {
+        room = { name: area ? reg.areaName[area] : (reg ? "Sin habitación" : "Luces y puertas"),
+          order: area ? reg.areaOrder[area] : 99999, ids: [] };
+        f.roomMap[key] = room;
+        f.rooms.push(room);
+      }
+      room.ids.push(id);
+    }
+    model = [];
+    for (i = 0; i < floors.length; i++) {
+      f = floors[i];
+      f.rooms.sort(function (a, b) { return a.order - b.order; });
+      if (f.vac.length) { f.rooms.push({ name: "Aspiradora", ids: f.vac, vacuum: true }); }
+      if (f.rooms.length) { model.push(f); }
+    }
+    var keep = false;
+    for (i = 0; i < model.length; i++) { if (model[i].id === currentFloor) { keep = true; } }
+    if (!keep) {
+      currentFloor = model.length ? model[0].id : null;
+      for (i = 0; i < model.length; i++) { if (DEFAULT_FLOOR.test(model[i].name)) { currentFloor = model[i].id; break; } }
+    }
+  }
+
+  // ---------- Interfaz ----------
+
+  function floorById(fid) {
+    for (var i = 0; i < model.length; i++) { if (model[i].id === fid) { return model[i]; } }
+    return null;
+  }
+
+  function render() {
+    var i, j, tabs = byId("tabs"), content = byId("content");
+    tabs.innerHTML = "";
+    for (i = 0; i < model.length; i++) {
+      var t = document.createElement("div");
+      t.textContent = model[i].name;
+      t.className = model[i].id === currentFloor ? "active" : "";
+      t.setAttribute("data-floor", model[i].id);
+      tabs.appendChild(t);
+    }
+    tabs.style.display = model.length > 1 ? "flex" : "none";
+    content.innerHTML = "";
+    tiles = {};
+    roomEls = [];
+    var f = floorById(currentFloor);
+    byId("empty").style.display = f ? "none" : "block";
+    if (!f) { updateCounts(); return; }
+    for (i = 0; i < f.rooms.length; i++) {
+      var room = f.rooms[i];
+      var h = document.createElement("h2");
+      h.appendChild(document.createTextNode(room.name));
+      var span = document.createElement("span");
+      h.appendChild(span);
+      content.appendChild(h);
+      var grid = document.createElement("div");
+      grid.className = "grid";
+      content.appendChild(grid);
+      for (j = 0; j < room.ids.length; j++) { makeTile(grid, room.ids[j]); }
+      roomEls.push({ ids: room.ids, span: span });
+    }
+    updateCounts();
+  }
+
+  function makeTile(grid, id) {
+    var d = domainOf(id);
+    var icon = d === "vacuum" ? ROBOT : (d === "binary_sensor" ? DOOR : BULB);
+    var wrap = document.createElement("div");
+    wrap.innerHTML = '<div><svg viewBox="0 0 24 24"><path d="' + icon + '"/></svg>' +
+      '<div><div class="name"></div><div class="state"></div></div></div>';
+    wrap.addEventListener("click", function () { onTap(id); });
+    grid.appendChild(wrap);
+    tiles[id] = wrap;
+    updateTile(id);
+  }
+
+  function batteryFor(vac) {
+    if (vac.attributes && vac.attributes.battery_level != null) { return vac.attributes.battery_level; }
+    var vname = nameOf(vac).toLowerCase();
+    for (var id in states) {
+      var s = states[id];
+      if (id.indexOf("sensor.") === 0 && s.attributes && s.attributes.device_class === "battery" &&
+          nameOf(s).toLowerCase().indexOf(vname) === 0) { return s.state; }
+    }
+    return null;
+  }
+
+  function updateTile(id) {
+    var t = tiles[id], s = states[id];
+    if (!t || !s) { return; }
+    var d = domainOf(id);
+    var cls = "tile" + (d === "vacuum" ? " wide" : "");
+    var label;
+    if (s.state === "unavailable" || s.state === "unknown") {
+      cls += " off-line";
+      label = "No disponible";
+    } else if (d === "light") {
+      if (s.state === "on") { cls += " on"; }
+      label = s.state === "on" ? "Encendida" : "Apagada";
+    } else if (d === "binary_sensor") {
+      if (s.state === "on") { cls += " open"; }
+      label = s.state === "on" ? "Abierta" : "Cerrada";
+    } else {
+      if (s.state === "cleaning" || s.state === "returning") { cls += " busy"; }
+      label = VACUUM_STATES[s.state] || s.state;
+      var b = batteryFor(s);
+      if (b != null && !isNaN(b)) { label += " · " + Math.round(b) + "%"; }
+      label += s.state === "cleaning" ? " — toca para volver a la base" : " — toca para limpiar";
+    }
+    t.className = cls;
+    t.querySelector(".name").textContent = nameOf(s);
+    t.querySelector(".state").textContent = label;
+  }
+
+  function lightsOn(ids) {
+    var on = [];
+    for (var i = 0; i < ids.length; i++) {
+      var s = states[ids[i]];
+      if (s && domainOf(ids[i]) === "light" && s.state === "on") { on.push(ids[i]); }
+    }
+    return on;
+  }
+
+  function floorLightsOn() {
+    var f = floorById(currentFloor), on = [];
+    if (!f) { return on; }
+    for (var i = 0; i < f.rooms.length; i++) { on = on.concat(lightsOn(f.rooms[i].ids)); }
+    return on;
+  }
+
+  function updateCounts() {
+    for (var i = 0; i < roomEls.length; i++) {
+      var n = lightsOn(roomEls[i].ids).length;
+      roomEls[i].span.textContent = n ? n + (n > 1 ? " encendidas" : " encendida") : "";
+    }
+    var total = floorLightsOn().length;
+    byId("alloff").innerHTML = "Apagar todo" + (total ? "<small>" + total + (total > 1 ? " encendidas" : " encendida") + "</small>" : "");
+  }
+
+  function onStateChanged(data) {
+    var id = data.entity_id;
+    if (data.new_state) { states[id] = data.new_state; } else { delete states[id]; }
+    if (tiles[id]) {
+      updateTile(id);
+      updateCounts();
+    } else if (data.new_state && relevant(data.new_state) && !modelIds[id] && !isHidden(id)) {
+      buildModel();
+      render();
+    }
+  }
+
+  function callService(domain, service, entityIds) {
+    send({ type: "call_service", domain: domain, service: service, target: { entity_id: entityIds } });
+  }
+
+  function onTap(id) {
+    var s = states[id];
+    if (!s || s.state === "unavailable") { return; }
+    var d = domainOf(id);
+    if (d === "light") {
+      s.state = s.state === "on" ? "off" : "on";
+      updateTile(id);
+      updateCounts();
+      callService("light", "toggle", id);
+    } else if (d === "vacuum") {
+      if (s.state === "cleaning") {
+        if (confirm("¿Enviar la aspiradora a la base?")) { callService("vacuum", "return_to_base", id); }
+      } else if (confirm("¿Empezar a limpiar?")) {
+        callService("vacuum", "start", id);
+      }
+    }
+  }
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function tickClock() {
+    var d = new Date();
+    byId("clock").textContent = pad(d.getHours()) + ":" + pad(d.getMinutes());
+    byId("date").textContent = DAYS[d.getDay()] + ", " + d.getDate() + " de " + MONTHS[d.getMonth()];
+  }
+
+  function showSetup(msg) {
+    byId("app").style.display = "none";
+    byId("setup").style.display = "block";
+    if (msg) { byId("setup-msg").textContent = msg; }
+  }
+
+  function start() {
+    authFailed = false;
+    byId("setup").style.display = "none";
+    byId("app").style.display = "block";
+    tickClock();
+    if (!clockTimer) { clockTimer = setInterval(tickClock, 10000); }
+    connect();
+  }
+
+  byId("tabs").addEventListener("click", function (ev) {
+    var fid = ev.target && ev.target.getAttribute && ev.target.getAttribute("data-floor");
+    if (fid && fid !== currentFloor) { currentFloor = fid; render(); }
+  });
+
+  byId("alloff").addEventListener("click", function () {
+    var on = floorLightsOn(), f = floorById(currentFloor);
+    if (!on.length || !f) { return; }
+    if (!confirm("¿Apagar " + on.length + (on.length > 1 ? " luces" : " luz") + " de " + f.name + "?")) { return; }
+    for (var i = 0; i < on.length; i++) { states[on[i]].state = "off"; updateTile(on[i]); }
+    updateCounts();
+    callService("light", "turn_off", on);
+  });
+
+  byId("token-save").addEventListener("click", function () {
+    var t = byId("token-input").value.replace(/\s+/g, "");
+    if (!t) { return; }
+    setToken(t);
+    byId("token-input").value = "";
+    start();
+  });
+
+  byId("settings").addEventListener("click", function () {
+    if (!confirm("¿Borrar el token guardado en este dispositivo?")) { return; }
+    clearToken();
+    authFailed = true;
+    if (ws) { ws.close(); }
+    showSetup("Pega el token de acceso de Home Assistant (de un usuario sin permisos de administrador).");
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && !ws && getToken() && !authFailed) { connect(); }
+  });
+
+  if (getToken()) { start(); } else { showSetup(); }
+})();
+</script>
+</body>
+</html>

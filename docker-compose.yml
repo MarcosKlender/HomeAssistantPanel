@@ -1,0 +1,47 @@
+# Home Assistant
+# Al arrancar descarga setup.py y panel.html de GitHub, fijados al commit PANEL_REF (.env),
+# y ejecuta setup.py. Si GitHub no responde, usa la ultima copia guardada en /config/.panel.
+services:
+  home-assistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        python3 - <<'EOF'
+        import os, urllib.request
+        repo = os.environ.get("PANEL_REPO", "MarcosKlender/HomeAssistantPanel")
+        ref = os.environ.get("PANEL_REF", "").strip()
+        dest = "/config/.panel"
+        os.makedirs(dest, exist_ok=True)
+        if len(ref) != 40:
+            print("[bootstrap] PANEL_REF debe ser el hash completo de un commit (40 caracteres); se usa la copia guardada")
+        else:
+            for path in ["setup.py", "panel/panel.html"]:
+                url = "https://raw.githubusercontent.com/" + repo + "/" + ref + "/" + path
+                try:
+                    data = urllib.request.urlopen(url, timeout=30).read()
+                    with open(os.path.join(dest, os.path.basename(path)), "wb") as f:
+                        f.write(data)
+                    print("[bootstrap] " + path + " @ " + ref[:7])
+                except Exception as e:
+                    print("[bootstrap] No se pudo descargar " + path + ": " + str(e))
+        EOF
+        if [ -f /config/.panel/setup.py ]; then python3 /config/.panel/setup.py; fi
+        exec /init
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`${TRAEFIK_HOST}`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=websecure
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.tls.certresolver=letsencrypt
+      - traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=8123
+#    ports:
+#      - "8123"
+    env_file:
+      - .env
+    volumes:
+      - home-assistant-config:/config
+
+volumes:
+  home-assistant-config:
