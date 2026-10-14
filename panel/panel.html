@@ -20,10 +20,9 @@
     font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
     -webkit-user-select: none; user-select: none; }
   header { display: flex; align-items: center; justify-content: space-between; padding: 24px 24px 8px; }
-  #clock { font-size: 56px; font-weight: 200; letter-spacing: 1px; }
-  #date { font-size: 18px; color: #9aa0a6; margin-top: 2px; }
-  #settings { width: 48px; height: 48px; border-radius: 24px; background: #1e232a; color: #9aa0a6;
-    border: 0; font-size: 22px; }
+  #date { font-size: 28px; font-weight: 300; }
+  #logout { width: 48px; height: 48px; border-radius: 24px; background: #1e232a; border: 0; padding: 0; }
+  #logout svg { display: block; width: 24px; height: 24px; margin: 0 auto; fill: #9aa0a6; }
   .bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px 0; }
   #tabs { display: flex; background: #1e232a; border-radius: 14px; padding: 4px; }
   #tabs div { white-space: nowrap; padding: 12px 22px; border-radius: 10px; font-size: 17px; font-weight: 600; color: #9aa0a6; }
@@ -54,7 +53,6 @@
   .tile.open svg { fill: #efe7ff; }
   .tile.open .state { color: #cdbdf5; }
   .tile.off-line > div { opacity: .4; }
-  .tile.wide { width: 66.666%; }
   #empty { color: #9aa0a6; padding: 40px 24px; font-size: 17px; display: none; }
   #setup { display: none; padding: 40px 24px; max-width: 640px; margin: 0 auto; }
   #setup p { color: #9aa0a6; font-size: 17px; line-height: 1.5; }
@@ -63,7 +61,7 @@
   #setup button { margin-top: 14px; width: 100%; height: 54px; border: 0; border-radius: 12px;
     background: #f5a524; color: #1b1300; font-size: 18px; font-weight: 600; }
   @media (max-width: 700px) {
-    .tile { width: 50%; } .tile.wide { width: 100%; }
+    .tile { width: 50%; }
     .bar { display: block; } #alloff { margin-top: 10px; }
     #tabs div { padding: 10px 14px; font-size: 15px; }
   }
@@ -72,8 +70,8 @@
 <body>
 <div id="app" style="display:none">
   <header>
-    <div><div id="clock">--:--</div><div id="date"></div></div>
-    <button id="settings" aria-label="Ajustes">&#9881;</button>
+    <div id="date"></div>
+    <button id="logout" aria-label="Cerrar sesión"><svg viewBox="0 0 24 24"><path d="M17 7L15.59 8.41L18.17 11H8V13H18.17L15.59 15.58L17 17L22 12M4 5H12V3H4C2.9 3 2 3.9 2 5V19C2 20.1 2.9 21 4 21H12V19H4V5Z"/></svg></button>
   </header>
   <div class="bar">
     <div id="tabs"></div>
@@ -108,10 +106,10 @@
     "septiembre", "octubre", "noviembre", "diciembre"];
 
   var ws = null, msgId = 0, pending = {}, authFailed = false;
-  var reconnectTimer = null, registryTimer = null, clockTimer = null;
+  var reconnectTimer = null, registryTimer = null, dateTimer = null;
   var states = {};      // entity_id -> estado
   var reg = null;       // pisos, areas y entidades de Home Assistant (null = sin registro)
-  var model = [];       // [{ id, name, rooms: [{ name, ids, vacuum }] }]
+  var model = [];       // [{ id, name, rooms: [{ name, ids }] }]
   var modelIds = {};    // entidades que aparecen en el modelo
   var currentFloor = null;
   var tiles = {};       // entity_id -> elemento de la tarjeta visible
@@ -120,6 +118,14 @@
   function byId(id) { return document.getElementById(id); }
   function domainOf(id) { return id.split(".")[0]; }
   function nameOf(s) { return (s && s.attributes && s.attributes.friendly_name) || (s && s.entity_id) || ""; }
+  // Algunas aspiradoras repiten el nombre del dispositivo: "Robot Vacuum S20+ Robot Vacuum S20+"
+  function vacuumName(s) {
+    var n = nameOf(s), half = (n.length - 1) / 2;
+    if (half > 0 && half % 1 === 0 && n.charAt(half) === " " && n.substr(0, half) === n.substr(half + 1)) {
+      return n.substr(0, half);
+    }
+    return n;
+  }
 
   function getToken() { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }
   function setToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} }
@@ -258,7 +264,7 @@
   function buildModel() {
     var floors = [], floorMap = {}, i, id;
     function addFloor(fid, name) {
-      var f = { id: fid, name: name, rooms: [], roomMap: {}, vac: [] };
+      var f = { id: fid, name: name, rooms: [], roomMap: {} };
       floors.push(f);
       floorMap[fid] = f;
       return f;
@@ -284,9 +290,8 @@
       id = ids[i];
       modelIds[id] = 1;
       var area = areaOf(id);
-      var f = (area && floorMap[reg.areaFloor[area]]) || null;
-      if (domainOf(id) === "vacuum") { (f || defaultFloor).vac.push(id); continue; }
-      f = f || other;
+      // Sin piso: las aspiradoras van a la planta por defecto y lo demas a "Otros"
+      var f = (area && floorMap[reg.areaFloor[area]]) || (domainOf(id) === "vacuum" ? defaultFloor : other);
       var key = area || "_none";
       var room = f.roomMap[key];
       if (!room) {
@@ -301,7 +306,6 @@
     for (i = 0; i < floors.length; i++) {
       f = floors[i];
       f.rooms.sort(function (a, b) { return a.order - b.order; });
-      if (f.vac.length) { f.rooms.push({ name: "Aspiradora", ids: f.vac, vacuum: true }); }
       if (f.rooms.length) { model.push(f); }
     }
     var keep = false;
@@ -366,7 +370,7 @@
 
   function batteryFor(vac) {
     if (vac.attributes && vac.attributes.battery_level != null) { return vac.attributes.battery_level; }
-    var vname = nameOf(vac).toLowerCase();
+    var vname = vacuumName(vac).toLowerCase();
     for (var id in states) {
       var s = states[id];
       if (id.indexOf("sensor.") === 0 && s.attributes && s.attributes.device_class === "battery" &&
@@ -379,8 +383,7 @@
     var t = tiles[id], s = states[id];
     if (!t || !s) { return; }
     var d = domainOf(id);
-    var cls = "tile" + (d === "vacuum" ? " wide" : "");
-    var label;
+    var cls = "tile", label;
     if (s.state === "unavailable" || s.state === "unknown") {
       cls += " off-line";
       label = "No disponible";
@@ -395,10 +398,9 @@
       label = VACUUM_STATES[s.state] || s.state;
       var b = batteryFor(s);
       if (b != null && !isNaN(b)) { label += " · " + Math.round(b) + "%"; }
-      label += s.state === "cleaning" ? " — toca para volver a la base" : " — toca para limpiar";
     }
     t.className = cls;
-    t.querySelector(".name").textContent = nameOf(s);
+    t.querySelector(".name").textContent = d === "vacuum" ? vacuumName(s) : nameOf(s);
     t.querySelector(".state").textContent = label;
   }
 
@@ -461,10 +463,8 @@
     }
   }
 
-  function pad(n) { return n < 10 ? "0" + n : "" + n; }
-  function tickClock() {
+  function tickDate() {
     var d = new Date();
-    byId("clock").textContent = pad(d.getHours()) + ":" + pad(d.getMinutes());
     byId("date").textContent = DAYS[d.getDay()] + ", " + d.getDate() + " de " + MONTHS[d.getMonth()];
   }
 
@@ -478,8 +478,8 @@
     authFailed = false;
     byId("setup").style.display = "none";
     byId("app").style.display = "block";
-    tickClock();
-    if (!clockTimer) { clockTimer = setInterval(tickClock, 10000); }
+    tickDate();
+    if (!dateTimer) { dateTimer = setInterval(tickDate, 60000); }
     connect();
   }
 
@@ -505,8 +505,8 @@
     start();
   });
 
-  byId("settings").addEventListener("click", function () {
-    if (!confirm("¿Borrar el token guardado en este dispositivo?")) { return; }
+  byId("logout").addEventListener("click", function () {
+    if (!confirm("¿Cerrar sesión en este dispositivo? Tendrás que pegar el token de nuevo.")) { return; }
     clearToken();
     authFailed = true;
     if (ws) { ws.close(); }

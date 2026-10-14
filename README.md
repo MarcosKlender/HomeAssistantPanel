@@ -1,41 +1,24 @@
-# HomeAssistantPanel
+<a id="readme-top"></a>
 
-Configuración de Home Assistant (Docker + Traefik) y un panel ligero para tablets antiguas (pensado para Safari 10 / iPad 4).
+<div align="center">
 
-## Qué hay aquí
+![Home Assistant](https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/New_Home_Assistant_logo.svg/120px-New_Home_Assistant_logo.svg.png)
 
-| Archivo | Qué hace |
-|---|---|
-| `docker-compose.yml` | Home Assistant detrás de Traefik. Al arrancar descarga `setup.py` y `panel/panel.html` de este repo, **fijados a un commit** (`PANEL_REF`), y ejecuta `setup.py`. |
-| `setup.py` | Prepara `/config`: proxy de Traefik en `.storage/http`, quita el bloque `http:` obsoleto, activa temas y el editor de automatizaciones, instala HACS (versión fija) y copia el panel a `/config/www`. Idempotente. |
-| `panel/panel.html` | Panel en ES5 puro. Pestañas por piso y tarjetas agrupadas por área según la configuración de Home Assistant. Luces, puertas y aspiradora. |
-| `.env.example` | Plantilla de variables. Los valores reales van en el editor de entorno de Hostinger, nunca en el repo. |
+</div>
 
-## Variables (`.env` en Hostinger)
+<h1 align="center">Home Assistant Panel</h1>
 
-| Variable | Ejemplo |
-|---|---|
-| `TRAEFIK_HOST` | `home.ejemplo.com` |
-| `TZ` | `America/Guayaquil` |
-| `PANEL_REPO` | `MarcosKlender/HomeAssistantPanel` |
-| `PANEL_REF` | hash completo del commit (40 caracteres) |
+<div align="center">
 
-## Actualizar
+![Home Assistant](https://img.shields.io/badge/Home%20Assistant-18BCF2?style=for-the-badge&logo=homeassistant&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white)
+![Traefik](https://img.shields.io/badge/Traefik-24A1C1?style=for-the-badge&logo=traefikproxy&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 
-1. Cambia lo que necesites, haz commit y push.
-2. Copia el hash del commit (`git rev-parse HEAD`) en `PANEL_REF` en Hostinger.
-3. Reinicia el contenedor.
+![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)
+![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
 
-Si GitHub no responde al arrancar, se usa la última copia guardada en `/config/.panel`.
+Panel de Home Assistant pensado para tablets antiguas (iPad 4 2012).
 
-## Panel
-
-- URL: `https://<TRAEFIK_HOST>/local/panel.html`
-- Necesita un token de acceso de larga duración de un usuario **sin permisos de administrador**. El token se pega en el dispositivo y se guarda solo en su `localStorage`; también se puede pasar una vez con `panel.html#token=...` (el hash no se envía al servidor y el panel lo borra de la URL).
-- Se ocultan las entidades marcadas como ocultas en Home Assistant (por ejemplo, los `switch` convertidos en luces).
-
-## Seguridad
-
-- Este repo no contiene secretos. **Nunca** subas tokens, contraseñas ni `.env`.
-- `PANEL_REF` fija un commit concreto: ningún cambio en GitHub llega al servidor hasta que actualices el hash.
-- `panel.html` se sirve desde el mismo dominio que Home Assistant, así que revisa cualquier cambio antes de fijarlo.
+</div>
